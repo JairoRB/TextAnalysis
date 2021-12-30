@@ -1,0 +1,283 @@
+---
+title: "Análisis de texto con R"
+output: html_notebook
+---
+
+# Introducción
+
+Analizar texto se ha convertido en una destreza que permite descubrir características y a la vez entender a los creadores del texto. Por ejemplo, podemos analizar el texto determinando las palabras más frecuentes, realizar un análisis de sentimientos y clasificar el contenido por clases, determinar la relación entre usuarios de redes sociales, entre otros.
+
+# Los datos
+
+Utilizando [Developer Platform](https://developer.twitter.com) de [Twitter](https://twitter.com) se procedió a crear la conexión para realizar búsquedas de información relacionada con líderes socialistas latinoamericanos que han gobernado o han participado en elecciones durante los últimos 20 años. El paquete utilizado para este fin es [rtweet](https://cran.r-project.org/web/packages/rtweet). Salvo una excepción, se realizó una doble búsqueda por cada líder, para esto se utilizó a *get_timeline* del paquete [rtweet](https://cran.r-project.org/web/packages/rtweet). Obtenidos los datos se realizó una selección de campos con el fin de realizar un análisis de tweets propios y retweets.
+
+Los líderes seleccionados son:
+
+| **No.** | **Nombres** | **Usuario** | **País**|
+|-------|-------|-------|-------|
+| 1 | Andrés Arauz | ecuarauz | Ecuador|
+| 2 | Alberto Fernández | alferdez | Argentina|
+| 3 | Andrés Manuel | lopezobrador_ | México|
+| 4 | Cristina Kirchner | CFKArgentina | Argentina|
+| 5 | Miguel Díaz-Canel Bermúdez | DiazCanelB | Cuba|
+| 6 | Dilma Rousseff | dilmabr | Brasil|
+| 7 | Ernesto Samper | ernestosamperp | Colombia|
+| 8 | Evo Morales | evoespueblo | Bolivia|
+| 9 | Fernando Lugo | lugo_py | Paraguay|
+| 10 | Gabriel Boric | gabrielboric | Chile|
+| 11 | Gustavo Petro | petrogustavo | Colombia|
+| 12 | Hugo Chávez | chavezcandanga | Venezuela|
+| 13 | Luis Arce | LuchoXBolivia | Bolivia|
+| 14 | Lula | LulaOficial | Brasil|
+| 15 | Manuel Zelaya | manuelzr | Honduras|
+| 16 | Nicolás Maduro | NicolasMaduro | Venezuela|
+| 17 | Ollanta Humala | Ollanta_HumalaT | Perú|
+| 18 | Pedro Castillo | PedroCastilloTe | Perú|
+| 19 | Rafael Correa | MashiRafael | Ecuador|
+| 20 | Xiomara Castro de Zelaya | XiomaraCastroZ | Honduras|
+
+Dependiendo del análisis se consideró a todos los usuarios como uno solo, sin embargo, lo ideal es trabajar por separado para cada usuario para determinar las diferencias y similitudes que puedan existir. Los datos recopilados cuentan con 58512 registros que entre sus principales características permiten determinar si un tweet es propio o retweet.
+
+A continuación, la carga de los datos y la visualización de los primeros registros:
+
+```{r, echo=FALSE}
+tweets <- datos
+head(tweets)
+```
+
+
+# Descripción  del tipo de tweet.
+
+El campo texto almacena a cada tweet recopilado, es importante notar que un tweet puede ser de autoría propia o no, en este caso hablamos de un retweet. Para esto se utilizó al paquete [tidyverse](https://cran.r-project.org/web/packages/tidyverse/) que debes aprender si te interesa manipular datos con [R](https://www.r-project.org/). A continuación, la cantidad de tweets por tipo y por usuario:
+
+```{r, warning=FALSE}
+library(tidyverse)
+
+merge(x = tweets %>% #tweets propios
+        select(screen_name, is_retweet) %>% #selección de campos
+        filter(is_retweet == FALSE) %>% #filtro para tweet propio
+        count(screen_name, name = "n_propios"), #cantidad de tweets propios
+      y = tweets %>%  #retweets
+        select(screen_name, is_retweet) %>% #selección de campos
+        filter(is_retweet == TRUE) %>% #filtro para retweet
+        count(screen_name, name = "n_retweets"), #cantidad de retweets
+      all = TRUE) %>% #unión de dataframes
+  arrange(screen_name) #orden por screen_name
+```
+Basado en el resultado anterior, existen usuarios que no realizan retweets, entonces se analiza nuevamente a todos los usuarios como uno solo. A continuación, la cantidad de tweets propios y retweets:
+
+```{r}
+# Propios
+tweets_propio = tweets %>% filter(is_retweet==FALSE)
+# Retweets
+tweets_retweets = tweets %>% filter(is_retweet==TRUE)
+# Cantidad de tweets propios y de retweets
+CantidadTipo = data.frame(tipo=c("Propio","Retweets"), #campo tipo de tweet
+                         cantidad=c(nrow(tweets_propio), nrow(tweets_retweets)) #campo cantidad de cada tipo
+                         )
+CantidadTipo
+```
+
+Para visualizar está relación introducimos un peso a cada tipo, en este caso su porcentaje, y creamos un gráfico por bloques. Para esto se utiliza al paquete [waffle](https://cran.r-project.org/web/packages/waffle/) que entre sus funciones permite realizar un gráfico por bloques.
+
+```{r , warning=FALSE, echo=TRUE}
+# Aumentando peso a cada tipo
+CantidadTipo = CantidadTipo %>% 
+  mutate(peso=round(cantidad/sum(cantidad)*100,00)) %>% #Creacion de campo peso
+  arrange(desc(cantidad)) #ordenando por cantidad
+
+# Extraccion del peso
+parte = CantidadTipo$peso
+# Etiquetando por clase
+names(parte) = CantidadTipo$tipo
+# Grafica de tipo de tweet
+library(waffle)
+waffle(parte, 
+       rows = 5, #número de filas 
+       title = 'Tipo de tweets', 
+       colors = colorRampPalette(c('blue', 'red'))(2), #paleta de colores
+       # (2) indica el número de clases que va a graficar
+       pad = 1, #densidad
+       size = 0.5, #separacion entre bloques  
+       flip = FALSE,#orientacion vertical con TRUE
+       xlab =  "Fuente: Twitter"
+       )
+```
+
+Observamos que es su mayoría se crean tweets propios. 
+
+# Tweets populares
+
+Se determina el tweet propio más popular por usuario, identificando a la cantidad de me gusta recibidos.
+
+```{r}
+tweets %>% 
+  filter(is_retweet == FALSE) %>% #filtro para tweet propio
+  group_by(screen_name) %>% #agrupacion por screen_name
+  mutate(popular = max(favorite_count)) %>% #creación de campo
+  filter(favorite_count == popular) %>% #filtro para seleccionar al tweet más popular
+  select(screen_name, popular, text) %>% # selección de campos
+  arrange(desc(popular)) #orden por popular
+```
+
+El retweet  más popular por usuario también es identificado.
+
+```{r}
+tweets %>% 
+  filter(is_retweet == TRUE) %>% #filtro para retweet
+  group_by(screen_name) %>% #agrupacion por screen_name
+  mutate(popular = max(retweet_favorite_count)) %>% #creación de campo
+  filter(retweet_favorite_count == popular) %>% #filtro para seleccionar al tweet más popular
+  select(screen_name, popular, text) %>% # selección de campos
+  arrange(desc(popular)) #orden por popular
+```
+
+# Análisis de hashtags
+
+Dentro de cada publicación es común añadir algún hashtag. Se determinó los 20 hashtags más populares por tipo de tweet considerando a todos como uno. Primero los hashtags relacionados con tweets propios.
+
+
+```{r, warning=FALSE}
+tweets_hashtag <- tweets_propio %>% 
+  filter(!is.na(hashtags)) %>% 
+  select(hashtags)
+
+tibble(word = unlist(tweets_hashtag$hashtags)) %>% #extraer hashtag
+  count(word, name = "cantidad", sort = TRUE) %>% #contar hashtags
+  head(20) %>% #seleccionar los 20 primeros
+  mutate(word1 = reorder(word, cantidad)) %>% #ordenar
+  ggplot(aes(x = word1, y = cantidad)) + #crear la grafica
+  geom_col(colour = "white", fill = "blue") + #anade la gráfica de cantidad
+  xlab(NULL) + #quita el nombre del eje horizontal
+  coord_flip() + #grafica en vertical
+  theme_light()  + #tema seleccionado
+  labs(y = "Frecuencia",
+       x = "Hashtags",
+       title = paste("Hashtags más frecuentes en tweets propios"),
+       subtitle = "Cantidad de hashtags", 
+       caption = "Fuente: Twitter")
+```
+
+A continuación, los hashtags relacionados con los retweets.
+
+```{r}
+tweets_hashtag_r <- tweets_retweets %>% 
+  filter(!is.na(hashtags)) %>% 
+  select(hashtags)
+
+tibble(word = unlist(tweets_hashtag_r$hashtags)) %>% #extraer hashtag
+  count(word, name = "cantidad", sort = TRUE) %>% #contar hashtags
+  head(20) %>% #seleccionar los 20 primeros
+  mutate(word1 = reorder(word, cantidad)) %>% #ordenar
+  ggplot(aes(x = word1, y = cantidad)) + #crear la grafica
+  geom_col(colour = "white", fill = "blue") + #anade la gráfica de cantidad
+  xlab(NULL) + #quita el nombre del eje horizontal
+  coord_flip() + #grafica en vertical
+  theme_light()  + #tema seleccionado
+  labs(y = "Frecuencia",
+       x = "Hashtags",
+       title = paste("Hashtags más frecuentes en retweets"),
+       subtitle = "Cantidad de hashtags", 
+       caption = "Fuente: Twitter")
+```
+
+Como se observa, los hashtags en su mayoría se diferencian de tweets propios con retweets.
+
+# Frecuencia de los tweets
+
+Otra descripción interesante es determinar la frecuencia en que se publica. A continuación, la representación gráfica de la frecuencia de tweets propios por día, para esto se utilizó a *ts_plot* de [rtweet](https://cran.r-project.org/web/packages/rtweet), es importante notar que también se puede realizar este análisis por semana, mes, año simplemente cambiando la selección en el argumento *by* de *ts_plot*.
+
+
+```{r}
+library(rtweet)
+
+tweets_propio %>% 
+  ts_plot(by = "days", color = "blue") +
+  theme_light()+
+  labs(title = "Frecuencia de tweets propios",
+       subtitle = "Cantidad de tweets por día",
+       x = "Fecha",
+       y = "Cantidad",
+       caption = "Fuente: Twitter")
+```
+
+De forma similar, la representación gráfica de la frecuencia de retweets.
+
+```{r, warning=FALSE}
+tweets_retweets %>% 
+  ts_plot(by = "days", color = "blue") +
+  theme_light()+
+  labs(title = "Frecuencia de retweets",
+       subtitle = "Cantidad de retweets por día",
+       x = "Fecha",
+       y = "Cantidad",
+       caption = "Fuente: Twitter")
+```
+
+
+# Palabras más usadas
+
+Otras descripciones usuales son determinar la cantidad de palabras utilizadas, las palabras más populares y su representación. Para realizarlas, es importante limpiar a los datos, para esto se seleccionó a los paquetes [tidytext](https://cran.r-project.org/web/packages/tidytext/index.html) y [tm](https://cran.r-project.org/web/packages/tm/). El procedimiento es iniciar removiendo caracteres que no tengan un significado concreto. Se ha seguido el siguiente orden: remover hipervínculos, remover menciones, remover separadores, remover números y remover espacios en blanco. Luego, es importante remover acentos y cambiar todas las letras a minúsculas o mayúsculas.
+
+```{r, warning=FALSE}
+library(tidytext)
+library(tm)
+
+palabras <- tweets_propio %>%
+  filter(is_retweet == FALSE) %>%
+  select(text) %>%
+  mutate(text=str_replace_all(text, "https\\S*", "")) %>% #remover hipervínculos
+  mutate(text=str_replace_all(text, "@\\S*", "")) %>% #remover menciones
+  mutate(text=str_replace_all(text, "[\r\n\t]", "")) %>% #remover separadores
+  mutate(text=removeNumbers(text)) %>% #remover números
+  mutate(text=removePunctuation(text)) %>% #remover puntuacion
+  mutate(text=str_squish(text)) %>% #remover espacios en blanco
+  mutate(text=tolower(text)) #a minúsculas
+```
+
+Con el texto limpio, se procede a realizar la tokenización. Esto significa que vamos a dividir a cada tweet en unidades de texto, en este caso en palabras. Existe una interesante teoría al respecto, ya que si se desea las unidades pueden ser dos palabras seguidas u oraciones, por ejemplo, si alguien se interesa puede leer al respecto en el capítulo 1 de [Text Mining with R: A Tidy Approach](https://www.tidytextmining.com/tidytext.html).
+
+```{r, warning=FALSE}
+palabras <- palabras %>% 
+  unnest_tokens(word, text, to_lower = F) #tokenizacion
+
+palabras
+```
+
+Al visualizar las primeras palabras obtenidas en el dataframe *palabras* se observan palabras como "la", "de", "es", entre otras, que llaman la atención ya que uno esperaría que aparezcan muchas veces en un determinado texto. Una práctica común es remover a este tipo de palabras, denominadas stopwords. En la documentación de los paquetes utilizados se puede aprender un poco más al respecto. En este caso, al contar con usuarios que hablan español, inglés y portugués se removieron stopwords para estos tres idiomas. Además, se contabilizó a cada palabra y ordenó en forma descendente considerando el número de apariciones.
+
+```{r, warning=FALSE}
+palabras <- palabras %>% 
+  filter(!word %in% stopwords("spanish")) %>%
+  filter(!word %in% stopwords("portuguese")) %>%
+  filter(!word %in% stopwords("english")) %>%
+  count(word, sort = TRUE) %>%
+  mutate(word = reorder(word, n)) %>%
+  arrange(desc(n))
+
+palabras
+```
+
+Observemos que las palabras "é" y "ser" aparecen, esto es algo que en principio no esperamos suceda, sin embargo, aprovechamos su aparición para indicar como remover palabras especiales. Simplemente se determina un nuevo conjunto de palabras a ser removidas, en este caso solamente se consideró a las palabras mencionadas antes, pero si se trabaja con algún otro texto que incluya muchos símbolos o palabras especiales como variables con subíndices, el considerar está opción puede ser de gran utilidad.
+
+```{r, warning=FALSE}
+my_stopword <- tibble(word = c("é", "ser"))
+
+palabras <- palabras %>% 
+  anti_join(my_stopword)
+
+palabras
+```
+
+Para finalizar, se creó una nube de palabras que es una herramienta visual muy amigable que permite determinar por el tamaño de la palabra su importancia ya que representa así su frecuencia de aparición. Para esto se utilizó al paquete [wordcloud2](https://cran.r-project.org/web/packages/wordcloud2/) que cuenta con características que permiten realizar nubes muy amigables. Por ejemplo, usar un fondo gris, colores pastel para las palabras y darle una forma de corazón.
+
+```{r, warning=FALSE}
+library(wordcloud2)
+palabras %>% 
+  select(word, freq=n) %>% 
+  wordcloud2(shape = 'cardioid', size = 0.25, color = "random-light", backgroundColor = "grey")
+```
+
+El fin de este archivo y los que vendrán es compartir lo que he aprendido. Es posible hacer análisis más profundos y detallados que espero seguir compartiendo, por ejemplo, el realizar un análisis de sentimientos y un clasificador basado en un análisis de sentimientos.
+
+Elaborado por Jairo Rojas.
